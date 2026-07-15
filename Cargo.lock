@@ -1064,9 +1064,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "ode"
+name = "ode_app"
 version = "0.1.0"
 dependencies = [
+ "ode_backend",
+ "ode_smithay",
+]
+
+[[package]]
+name = "ode_backend"
+version = "0.1.0"
+
+[[package]]
+name = "ode_core"
+version = "0.1.0"
+
+[[package]]
+name = "ode_smithay"
+version = "0.1.0"
+dependencies = [
+ "ode_backend",
  "smithay",
 ]
 
