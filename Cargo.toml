@@ -1,7 +1,7 @@
 [workspace]
 members = [
-  "crates/ode_app",
-  "crates/ode_backend",
-  "crates/ode_core",
-  "crates/ode_smithay",
+  "crates/ode_app/",
+  "crates/ode_backend/",
+  "crates/ode_core/",
+  "crates/ode_smithay/",
 ]
