@@ -1068,12 +1068,16 @@ name = "ode_app"
 version = "0.1.0"
 dependencies = [
  "ode_backend",
+ "ode_core",
  "ode_smithay",
 ]
 
 [[package]]
 name = "ode_backend"
 version = "0.1.0"
+dependencies = [
+ "ode_core",
+]
 
 [[package]]
 name = "ode_core"
@@ -1084,6 +1088,7 @@ name = "ode_smithay"
 version = "0.1.0"
 dependencies = [
  "ode_backend",
+ "ode_core",
  "smithay",
 ]
 

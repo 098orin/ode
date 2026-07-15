@@ -5,4 +5,5 @@ edition.workspace = true
 
 [dependencies]
 ode_backend = { path = "../ode_backend/" }
+ode_core = { path = "../ode_core/" }
 ode_smithay = { path = "../ode_smithay/" }
