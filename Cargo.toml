@@ -5,3 +5,7 @@ members = [
   "crates/ode_core/",
   "crates/ode_smithay/",
 ]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
