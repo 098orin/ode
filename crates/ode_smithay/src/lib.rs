@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use ode_backend::Backend;
-use ode_core::compositor::Compositor;
+use ode_core::compositor::{Compositor, WindowId};
 use smithay::{
     delegate_compositor, delegate_data_device, delegate_seat, delegate_shm, delegate_xdg_shell,
     input::{Seat, SeatHandler, SeatState},
@@ -62,6 +62,7 @@ impl Backend for SmithayBackend {
             data_device_state: DataDeviceState::new::<SmithayState>(&dh),
             seat,
             ode_compositor: self.ode_compositor,
+            surface_map: HashMap::new(),
         };
 
         let mut data = CalloopData { display, state };
@@ -103,6 +104,7 @@ struct SmithayState {
     data_device_state: DataDeviceState,
     seat: Seat<Self>,
     ode_compositor: Compositor,
+    surface_map: HashMap<WlSurface, WindowId>,
 }
 
 impl BufferHandler for SmithayState {
@@ -120,8 +122,11 @@ impl XdgShellHandler for SmithayState {
         &mut self.xdg_shell_state
     }
 
-    fn new_toplevel(&mut self, _surface: ToplevelSurface) {
-        todo!()
+    fn new_toplevel(&mut self, surface: ToplevelSurface) {
+        let window_id = self.ode_compositor.create_window();
+        self.surface_map
+            .insert(surface.wl_surface().clone(), window_id);
+        surface.send_configure();
     }
     fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {
         todo!()
