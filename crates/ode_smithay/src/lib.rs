@@ -1,20 +1,210 @@
+use std::sync::Arc;
+
 use ode_backend::Backend;
 use ode_core::compositor::Compositor;
+use smithay::{
+    delegate_compositor, delegate_data_device, delegate_seat, delegate_shm, delegate_xdg_shell,
+    input::{Seat, SeatHandler, SeatState},
+    reexports::{
+        calloop::EventLoop,
+        wayland_server::{
+            Client, Display,
+            backend::{ClientData, ClientId, DisconnectReason},
+            protocol::{wl_buffer, wl_seat, wl_surface::WlSurface},
+        },
+    },
+    utils::Serial,
+    wayland::{
+        buffer::BufferHandler,
+        compositor::{CompositorClientState, CompositorHandler, CompositorState},
+        selection::{
+            SelectionHandler,
+            data_device::{
+                ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
+            },
+        },
+        shell::xdg::{
+            PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
+        },
+        shm::{ShmHandler, ShmState},
+        socket::ListeningSocketSource,
+    },
+};
 
-pub struct SmithayBackend;
+pub struct SmithayBackend {
+    ode_compositor: Compositor,
+}
 
 impl SmithayBackend {
-    pub fn new() -> Self {
-        Self
+    pub fn new(ode_compositor: Compositor) -> Self {
+        Self { ode_compositor }
     }
 }
 
 impl Backend for SmithayBackend {
     type Error = Box<dyn std::error::Error>;
 
-    fn run(self, compositor: Compositor) -> Result<(), Self::Error> {
-        println!("Smithay backend started.");
+    fn run(self) -> Result<(), Self::Error> {
+        let mut event_loop = EventLoop::<CalloopData>::try_new()?;
+        let display: Display<SmithayState> = Display::new()?;
+        let dh = display.handle();
+
+        let compositor_state = CompositorState::new::<SmithayState>(&dh);
+        let shm_state = ShmState::new::<SmithayState>(&dh, vec![]);
+        let mut seat_state = SeatState::new();
+        let seat = seat_state.new_wl_seat(&dh, "ode");
+
+        let state = SmithayState {
+            smithay_compositor: compositor_state,
+            xdg_shell_state: XdgShellState::new::<SmithayState>(&dh),
+            shm_state,
+            seat_state,
+            data_device_state: DataDeviceState::new::<SmithayState>(&dh),
+            seat,
+            ode_compositor: self.ode_compositor,
+        };
+
+        let mut data = CalloopData { display, state };
+
+        let listening_socket = ListeningSocketSource::new_auto()?;
+        let socket_name = listening_socket.socket_name().to_os_string();
+        println!("WAYLAND_DISPLAY={}", socket_name.to_string_lossy());
+
+        event_loop
+            .handle()
+            .insert_source(listening_socket, |client_stream, _, data| {
+                data.display
+                    .handle()
+                    .insert_client(client_stream, Arc::new(ClientState::default()))
+                    .unwrap();
+            })?;
+
+        println!("Wayland compositor started.");
+
+        event_loop.run(None, &mut data, |data| {
+            data.display.dispatch_clients(&mut data.state).unwrap();
+            data.display.flush_clients().unwrap();
+        })?;
 
         Ok(())
     }
 }
+
+struct CalloopData {
+    display: Display<SmithayState>,
+    state: SmithayState,
+}
+
+struct SmithayState {
+    smithay_compositor: CompositorState,
+    xdg_shell_state: XdgShellState,
+    shm_state: ShmState,
+    seat_state: SeatState<Self>,
+    data_device_state: DataDeviceState,
+    seat: Seat<Self>,
+    ode_compositor: Compositor,
+}
+
+impl BufferHandler for SmithayState {
+    fn buffer_destroyed(&mut self, _buffer: &wl_buffer::WlBuffer) {
+        todo!()
+    }
+}
+
+impl SelectionHandler for SmithayState {
+    type SelectionUserData = ();
+}
+
+impl XdgShellHandler for SmithayState {
+    fn xdg_shell_state(&mut self) -> &mut XdgShellState {
+        &mut self.xdg_shell_state
+    }
+
+    fn new_toplevel(&mut self, _surface: ToplevelSurface) {
+        todo!()
+    }
+    fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {
+        todo!()
+    }
+    fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
+        todo!()
+    }
+    fn reposition_request(
+        &mut self,
+        _surface: PopupSurface,
+        _positioner: PositionerState,
+        _token: u32,
+    ) {
+        todo!()
+    }
+}
+
+impl CompositorHandler for SmithayState {
+    fn compositor_state(&mut self) -> &mut CompositorState {
+        &mut self.smithay_compositor
+    }
+
+    fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
+        &client.get_data::<ClientState>().unwrap().compositor_state
+    }
+
+    fn commit(&mut self, _surface: &WlSurface) {
+        todo!()
+    }
+}
+
+impl ShmHandler for SmithayState {
+    fn shm_state(&self) -> &ShmState {
+        &self.shm_state
+    }
+}
+
+impl SeatHandler for SmithayState {
+    type KeyboardFocus = WlSurface;
+    type PointerFocus = WlSurface;
+    type TouchFocus = WlSurface;
+
+    fn seat_state(&mut self) -> &mut SeatState<Self> {
+        &mut self.seat_state
+    }
+
+    fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {
+        todo!()
+    }
+    fn cursor_image(
+        &mut self,
+        _seat: &Seat<Self>,
+        _image: smithay::input::pointer::CursorImageStatus,
+    ) {
+        todo!()
+    }
+}
+
+impl DataDeviceHandler for SmithayState {
+    fn data_device_state(&self) -> &DataDeviceState {
+        &self.data_device_state
+    }
+}
+
+impl ClientDndGrabHandler for SmithayState {}
+impl ServerDndGrabHandler for SmithayState {}
+
+#[derive(Default)]
+struct ClientState {
+    compositor_state: CompositorClientState,
+}
+
+impl ClientData for ClientState {
+    fn initialized(&self, _client_id: ClientId) {
+        todo!()
+    }
+    fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {
+        todo!()
+    }
+}
+
+delegate_xdg_shell!(SmithayState);
+delegate_compositor!(SmithayState);
+delegate_shm!(SmithayState);
+delegate_seat!(SmithayState);
+delegate_data_device!(SmithayState);
