@@ -16,7 +16,10 @@ use smithay::{
     utils::Serial,
     wayland::{
         buffer::BufferHandler,
-        compositor::{CompositorClientState, CompositorHandler, CompositorState},
+        compositor::{
+            CompositorClientState, CompositorHandler, CompositorState, SurfaceAttributes,
+            with_states,
+        },
         selection::{
             SelectionHandler,
             data_device::{
@@ -123,7 +126,12 @@ impl XdgShellHandler for SmithayState {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
+        println!("new window");
+
         let window_id = self.ode_compositor.create_window();
+
+        println!("window id: {:?}", window_id);
+
         self.surface_map
             .insert(surface.wl_surface().clone(), window_id);
         surface.send_configure();
@@ -153,8 +161,23 @@ impl CompositorHandler for SmithayState {
         &client.get_data::<ClientState>().unwrap().compositor_state
     }
 
-    fn commit(&mut self, _surface: &WlSurface) {
-        todo!()
+    fn commit(&mut self, surface: &WlSurface) {
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u32;
+
+        with_states(surface, |states| {
+            for callback in states
+                .cached_state
+                .get::<SurfaceAttributes>()
+                .current()
+                .frame_callbacks
+                .drain(..)
+            {
+                callback.done(time);
+            }
+        });
     }
 }
 
