@@ -1,4 +1,5 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use ode_backend::Backend;
 use ode_core::compositor::{Compositor, WindowId};
@@ -8,7 +9,7 @@ use smithay::{
     reexports::{
         calloop::EventLoop,
         wayland_server::{
-            Client, Display,
+            Client, Display, DisplayHandle, Resource,
             backend::{ClientData, ClientId, DisconnectReason},
             protocol::{wl_buffer, wl_seat, wl_surface::WlSurface},
         },
@@ -65,7 +66,9 @@ impl Backend for SmithayBackend {
             data_device_state: DataDeviceState::new::<SmithayState>(&dh),
             seat,
             ode_compositor: self.ode_compositor,
+            display_handle: dh,
             surface_map: HashMap::new(),
+            client_windows: HashMap::new(),
         };
 
         let mut data = CalloopData { display, state };
@@ -107,7 +110,9 @@ struct SmithayState {
     data_device_state: DataDeviceState,
     seat: Seat<Self>,
     ode_compositor: Compositor,
+    display_handle: DisplayHandle,
     surface_map: HashMap<WlSurface, WindowId>,
+    client_windows: HashMap<ClientId, HashSet<WindowId>>,
 }
 
 impl BufferHandler for SmithayState {
@@ -126,14 +131,24 @@ impl XdgShellHandler for SmithayState {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
-        println!("new window");
-
         let window_id = self.ode_compositor.create_window();
 
-        println!("window id: {:?}", window_id);
+        let client = self
+            .display_handle
+            .get_client(surface.wl_surface().id())
+            .expect("toplevel surface has no client");
+
+        self.client_windows
+            .entry(client.id())
+            .or_default()
+            .insert(window_id);
 
         self.surface_map
             .insert(surface.wl_surface().clone(), window_id);
+
+        surface.with_pending_state(|state| {
+            state.size = Some((800, 600).into());
+        });
         surface.send_configure();
     }
     fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {
@@ -179,6 +194,17 @@ impl CompositorHandler for SmithayState {
             }
         });
     }
+
+    fn destroyed(&mut self, surface: &WlSurface) {
+        if let Some(window_id) = self.surface_map.remove(surface) {
+            self.ode_compositor.destroy_window(window_id);
+
+            for windows in self.client_windows.values_mut() {
+                windows.remove(&window_id);
+            }
+            self.client_windows.retain(|_, windows| !windows.is_empty());
+        }
+    }
 }
 
 impl ShmHandler for SmithayState {
@@ -223,11 +249,12 @@ struct ClientState {
 }
 
 impl ClientData for ClientState {
-    fn initialized(&self, _client_id: ClientId) {
-        todo!()
+    fn initialized(&self, client_id: ClientId) {
+        println!("client initialized: {:?}", client_id);
     }
-    fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {
-        todo!()
+
+    fn disconnected(&self, client_id: ClientId, reason: DisconnectReason) {
+        println!("client disconnected: {client_id:?}, reason: {reason:?}");
     }
 }
 
